@@ -53,10 +53,57 @@ router.post('/', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async
   try {
     if (!req.body.code || String(req.body.code).trim() === '') {
       req.body.code = await CounterService.getNextCustomerCode();
+    } else {
+      const existing = await Vendor.findOne({ code: String(req.body.code).trim().toUpperCase(), deletedAt: null });
+      if (existing) {
+        req.body.code = await CounterService.getNextCustomerCode();
+      }
     }
     const vendor = new Vendor(req.body);
     await vendor.save();
     res.status(201).json({ success: true, data: vendor });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update vendor / customer
+router.put('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const { name, contactPerson, phone, address, paymentTermsDays, creditLimitPaisa, isActive } = req.body;
+    const vendor = await Vendor.findById(req.params.id);
+    if (!vendor || vendor.deletedAt) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Customer not found' } });
+    }
+
+    if (name) vendor.name = name.trim();
+    if (contactPerson !== undefined) vendor.contactPerson = contactPerson ? contactPerson.trim() : '';
+    if (phone !== undefined) vendor.phone = phone ? phone.trim() : '';
+    if (address !== undefined) vendor.address = address;
+    if (paymentTermsDays !== undefined) vendor.paymentTermsDays = Number(paymentTermsDays);
+    if (creditLimitPaisa !== undefined) vendor.creditLimitPaisa = Number(creditLimitPaisa);
+    if (isActive !== undefined) vendor.isActive = Boolean(isActive);
+
+    await vendor.save();
+    res.json({ success: true, data: vendor });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Soft delete vendor / customer
+router.delete('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const vendor = await Vendor.findById(req.params.id);
+    if (!vendor || vendor.deletedAt) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Customer not found' } });
+    }
+
+    vendor.deletedAt = new Date();
+    vendor.isActive = false;
+    await vendor.save();
+
+    res.json({ success: true, message: 'Customer successfully deleted' });
   } catch (err) {
     next(err);
   }

@@ -66,4 +66,47 @@ router.get('/:id', requireAuth, sanitizeWarehouseStaffPrices, async (req, res, n
   }
 });
 
+// Update product
+router.put('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const { name, baseUnit, cartonSize, salePricePaisa, costPricePaisa, taxRatePercent, reorderLevel, isActive } = req.body;
+    const product = await Product.findById(req.params.id);
+    if (!product || product.deletedAt) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Product not found' } });
+    }
+
+    if (name) product.name = name.trim();
+    if (baseUnit) product.baseUnit = baseUnit.trim();
+    if (cartonSize !== undefined) product.cartonSize = Number(cartonSize);
+    if (salePricePaisa !== undefined) product.salePricePaisa = Number(salePricePaisa);
+    if (costPricePaisa !== undefined) product.costPricePaisa = Number(costPricePaisa);
+    if (taxRatePercent !== undefined) product.taxRatePercent = Number(taxRatePercent);
+    if (reorderLevel !== undefined) product.reorderLevel = Number(reorderLevel);
+    if (isActive !== undefined) product.isActive = Boolean(isActive);
+
+    await product.save();
+    res.json({ success: true, data: product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Soft delete product
+router.delete('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product || product.deletedAt) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Product not found' } });
+    }
+
+    product.deletedAt = new Date();
+    product.isActive = false;
+    await product.save();
+
+    res.json({ success: true, message: 'Product successfully deleted' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

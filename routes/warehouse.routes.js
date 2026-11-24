@@ -88,6 +88,26 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 });
 
+// Update warehouse
+router.put('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
+  try {
+    const { name, address, isActive } = req.body;
+    const warehouse = await Warehouse.findById(req.params.id);
+    if (!warehouse || warehouse.deletedAt) {
+      return res.status(404).json({ success: false, error: { message: 'Warehouse not found' } });
+    }
+
+    if (name) warehouse.name = name.trim();
+    if (address !== undefined) warehouse.address = address ? address.trim() : '';
+    if (isActive !== undefined) warehouse.isActive = Boolean(isActive);
+
+    await warehouse.save();
+    res.json({ success: true, data: warehouse });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Soft delete warehouse (only if unreferenced by stock movements)
 router.delete('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
   try {

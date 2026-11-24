@@ -1,4 +1,5 @@
 import { Counter } from '../models/Counter.js';
+import { Vendor } from '../models/Vendor.js';
 
 export class CounterService {
   /**
@@ -36,8 +37,17 @@ export class CounterService {
   static async previewNextCustomerCode(session = null) {
     const key = 'CUSTOMER_CODE';
     const counter = await Counter.findOne({ key }).session(session);
-    if (!counter) return '700';
-    return String(Math.max(700, counter.sequenceValue + 1));
+    
+    // Find highest existing numeric code in vendors table
+    const numericVendors = await Vendor.find({ code: /^\d+$/ }, 'code').session(session);
+    let maxExisting = 699;
+    for (const v of numericVendors) {
+      const n = parseInt(v.code, 10);
+      if (!isNaN(n) && n > maxExisting) maxExisting = n;
+    }
+
+    const currentSeq = counter ? Math.max(counter.sequenceValue, maxExisting) : maxExisting;
+    return String(currentSeq + 1);
   }
 
   /**
@@ -45,14 +55,26 @@ export class CounterService {
    */
   static async getNextCustomerCode(session = null) {
     const key = 'CUSTOMER_CODE';
+    
+    // Find highest existing numeric code in vendors table
+    const numericVendors = await Vendor.find({ code: /^\d+$/ }, 'code').session(session);
+    let maxExisting = 699;
+    for (const v of numericVendors) {
+      const n = parseInt(v.code, 10);
+      if (!isNaN(n) && n > maxExisting) maxExisting = n;
+    }
+
     let counter = await Counter.findOne({ key }).session(session);
     if (!counter) {
       try {
-        const [created] = await Counter.create([{ key, sequenceValue: 699 }], { session });
+        const [created] = await Counter.create([{ key, sequenceValue: maxExisting }], { session });
         counter = created;
       } catch (err) {
         counter = await Counter.findOne({ key }).session(session);
       }
+    } else if (counter.sequenceValue < maxExisting) {
+      counter.sequenceValue = maxExisting;
+      await counter.save({ session });
     }
 
     const updated = await Counter.findOneAndUpdate(
