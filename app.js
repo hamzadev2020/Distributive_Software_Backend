@@ -56,6 +56,18 @@ app.get('/health', async (req, res) => {
   });
 });
 
+// Ensure Database is connected for serverless invocations (Vercel)
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState === 0) {
+    try {
+      await DbConfig();
+    } catch (err) {
+      console.error('Failed to connect to DB in serverless invocation:', err);
+    }
+  }
+  next();
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/vendors', vendorRoutes);
@@ -73,9 +85,11 @@ app.use('/api/dashboard', dashboardRoutes);
 // Central Error Handler
 app.use(errorHandler);
 
+export default app;
+
 const Port = process.env.PORT || 5000;
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   DbConfig().then(() => {
     app.listen(Port, () => {
       console.log(`Distribution Management Server running on http://localhost:${Port}`);
