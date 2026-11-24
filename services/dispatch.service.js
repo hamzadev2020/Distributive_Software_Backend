@@ -3,6 +3,7 @@ import { DistributionOrder } from '../models/DistributionOrder.js';
 import { DeliveryChallan } from '../models/DeliveryChallan.js';
 import { Invoice } from '../models/Invoice.js';
 import { Product } from '../models/Product.js';
+import { Batch } from '../models/Batch.js';
 import { Vendor } from '../models/Vendor.js';
 import { StockService } from './stock.service.js';
 import { CounterService } from './counter.service.js';
@@ -65,24 +66,36 @@ export class DispatchService {
         deliveredQty: 0
       });
 
-      // Prepare invoice item
+      // Prepare invoice item with batch number & 1% default tax
       const lineNetPaisa = Math.round((remainingToDispatch / item.quantity) * item.lineNetPaisa);
-      const lineTaxPaisa = Math.round((remainingToDispatch / item.quantity) * item.lineTaxPaisa);
+      // Auto-calculate 1% tax (100 basis points)
+      const taxRateBasisPoints = item.taxRateBasisPoints || 100;
+      const lineTaxPaisa = Math.round((lineNetPaisa * taxRateBasisPoints) / 10000);
       const lineTotalPaisa = lineNetPaisa + lineTaxPaisa;
 
       subtotalPaisa += lineNetPaisa;
       taxTotalPaisa += lineTaxPaisa;
 
+      let batchNumber = item.batchNumber || null;
+      if (!batchNumber && item.batchId) {
+        const batch = await Batch.findById(item.batchId).session(session);
+        if (batch) batchNumber = batch.batchNumber;
+      }
+      if (!batchNumber) {
+        const anyBatch = await Batch.findOne({ productId: item.productId }).sort({ createdAt: -1 }).session(session);
+        if (anyBatch) batchNumber = anyBatch.batchNumber;
+      }
+
       invoiceItems.push({
         productId: item.productId,
         sku: product ? product.sku : 'UNKNOWN',
         productName: product ? product.name : 'Unknown Product',
-        batchNumber: null,
+        batchNumber: batchNumber || '—',
         quantity: remainingToDispatch,
         unitPricePaisa: item.unitPricePaisa,
-        discountPercent: item.discountPercent,
-        discountFlatPaisa: item.discountFlatPaisa,
-        taxRateBasisPoints: item.taxRateBasisPoints,
+        discountPercent: item.discountPercent || 0,
+        discountFlatPaisa: item.discountFlatPaisa || 0,
+        taxRateBasisPoints,
         lineNetPaisa,
         lineTaxPaisa,
         lineTotalPaisa,

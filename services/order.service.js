@@ -50,7 +50,7 @@ export class OrderService {
       const quantity = item.quantity;
       const discountPercent = item.discountPercent || 0;
       const discountFlatPaisa = item.discountFlatPaisa || 0;
-      const taxRateBasisPoints = product.taxRatePercent || 0;
+      const taxRateBasisPoints = item.taxRateBasisPoints !== undefined ? item.taxRateBasisPoints : (product.taxRatePercent || 100);
 
       const lineGrossPaisa = quantity * unitPricePaisa;
       const lineNetPaisa = calculateLineNet(lineGrossPaisa, discountPercent, discountFlatPaisa);

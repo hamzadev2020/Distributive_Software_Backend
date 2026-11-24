@@ -46,11 +46,9 @@ const invoiceSchema = new mongoose.Schema(
       address: mongoose.Schema.Types.Mixed
     },
     companySnapshot: {
-      name: { type: String, default: 'Distribution Co.' },
-      ntn: { type: String, default: '1234567-8' },
-      salesTaxReg: { type: String, default: '12-34-5678-001' },
-      address: { type: String, default: 'Head Office, Karachi, Pakistan' },
-      bankDetails: { type: String, default: 'Bank Alfalah, Account # 1234567890' }
+      name: { type: String, default: 'RZ PHARMA DISTRIBUTORS' },
+      phone: { type: String, default: '0336-7388274' },
+      address: { type: String, default: 'BALDHER HARIPUR' }
     },
     items: [invoiceItemSchema],
     subtotalPaisa: { type: Number, required: true, default: 0, min: 0 },

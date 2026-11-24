@@ -42,8 +42,7 @@ export class InvoiceService {
     invoice.vendorSnapshot = {
       code: vendor.code,
       name: vendor.name,
-      ntn: vendor.ntn,
-      salesTaxReg: vendor.salesTaxRegistration,
+      phone: vendor.phone || '',
       address: vendor.address
     };
 

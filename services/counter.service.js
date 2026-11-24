@@ -29,4 +29,38 @@ export class CounterService {
     const seqFormatted = String(counter.sequenceValue).padStart(4, '0');
     return `${key}-${seqFormatted}`;
   }
+
+  /**
+   * Preview next customer serial number (starts from 700)
+   */
+  static async previewNextCustomerCode(session = null) {
+    const key = 'CUSTOMER_CODE';
+    const counter = await Counter.findOne({ key }).session(session);
+    if (!counter) return '700';
+    return String(Math.max(700, counter.sequenceValue + 1));
+  }
+
+  /**
+   * Auto-generate next customer code starting from 700 (Bismillah sequence)
+   */
+  static async getNextCustomerCode(session = null) {
+    const key = 'CUSTOMER_CODE';
+    let counter = await Counter.findOne({ key }).session(session);
+    if (!counter) {
+      try {
+        const [created] = await Counter.create([{ key, sequenceValue: 699 }], { session });
+        counter = created;
+      } catch (err) {
+        counter = await Counter.findOne({ key }).session(session);
+      }
+    }
+
+    const updated = await Counter.findOneAndUpdate(
+      { key },
+      { $inc: { sequenceValue: 1 } },
+      { session, returnDocument: 'after' }
+    );
+
+    return String(Math.max(700, updated.sequenceValue));
+  }
 }

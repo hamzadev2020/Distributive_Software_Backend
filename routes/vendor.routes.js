@@ -1,6 +1,7 @@
 import express from 'express';
 import { Vendor } from '../models/Vendor.js';
 import { LedgerService } from '../services/ledger.service.js';
+import { CounterService } from '../services/counter.service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole, sanitizeWarehouseStaffPrices } from '../middleware/rbac.js';
 import { ROLES } from '../config/constants.js';
@@ -37,9 +38,22 @@ router.get('/', requireAuth, sanitizeWarehouseStaffPrices, async (req, res, next
   }
 });
 
-// Create vendor
+// Preview next customer code (starts from 700)
+router.get('/next-code', requireAuth, async (req, res, next) => {
+  try {
+    const nextCode = await CounterService.previewNextCustomerCode();
+    res.json({ success: true, data: { nextCode } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Create vendor / customer
 router.post('/', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN), async (req, res, next) => {
   try {
+    if (!req.body.code || String(req.body.code).trim() === '') {
+      req.body.code = await CounterService.getNextCustomerCode();
+    }
     const vendor = new Vendor(req.body);
     await vendor.save();
     res.status(201).json({ success: true, data: vendor });
