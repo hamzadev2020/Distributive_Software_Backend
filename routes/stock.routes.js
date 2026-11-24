@@ -1,5 +1,6 @@
 import express from 'express';
 import { StockBalance } from '../models/StockBalance.js';
+import { Batch } from '../models/Batch.js';
 import { StockService } from '../services/stock.service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
@@ -30,11 +31,27 @@ router.get('/balances', requireAuth, async (req, res, next) => {
 // Goods receipt (Stock-In)
 router.post('/goods-receipt', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.WAREHOUSE_STAFF), requireIdempotency, async (req, res, next) => {
   try {
-    const { productId, warehouseId, batchId, quantity, unitCostPaisa, reason } = req.body;
+    let { productId, warehouseId, batchId, batchNumber, expiryDate, quantity, unitCostPaisa, reason } = req.body;
+    
+    // If batchNumber provided, find or create the Batch record
+    if (!batchId && batchNumber && String(batchNumber).trim() !== '') {
+      const cleanBatch = String(batchNumber).trim().toUpperCase();
+      let batch = await Batch.findOne({ productId, batchNumber: cleanBatch });
+      if (!batch) {
+        batch = new Batch({
+          productId,
+          batchNumber: cleanBatch,
+          expiryDate: expiryDate ? new Date(expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+        });
+        await batch.save();
+      }
+      batchId = batch._id;
+    }
+
     const result = await StockService.receiveStock({
       productId,
       warehouseId,
-      batchId,
+      batchId: batchId || null,
       quantity,
       unitCostPaisa,
       reason,
