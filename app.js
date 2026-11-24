@@ -29,11 +29,21 @@ export const app = express();
 // Security & Parsing Middlewares
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: true,
   credentials: true
 }));
 app.use(express.json());
 app.use(cookieParser());
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ONLINE',
+    service: 'Distribution Management System API',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Health Check with Replica Set status inspection
 app.get('/health', async (req, res) => {
