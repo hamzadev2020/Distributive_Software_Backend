@@ -80,4 +80,48 @@ router.post('/:id/cancel', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADM
   }
 });
 
+// Edit draft order
+router.put('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.WAREHOUSE_STAFF), async (req, res, next) => {
+  try {
+    const order = await DistributionOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, error: { message: 'Order not found' } });
+    if (order.status !== 'DRAFT') {
+      return res.status(400).json({ success: false, error: { message: 'Only DRAFT orders can be edited' } });
+    }
+    const { vendorId, warehouseId, quantity, productId } = req.body;
+    if (vendorId) order.vendorId = vendorId;
+    if (warehouseId) order.warehouseId = warehouseId;
+    if (quantity && order.items && order.items.length > 0) {
+      order.items[0].quantity = Number(quantity);
+      if (productId) order.items[0].productId = productId;
+      const unitPrice = order.items[0].unitPricePaisa || 0;
+      order.items[0].lineNetPaisa = unitPrice * Number(quantity);
+      order.items[0].lineTaxPaisa = Math.round(order.items[0].lineNetPaisa * 0.01);
+      order.items[0].lineTotalPaisa = order.items[0].lineNetPaisa + order.items[0].lineTaxPaisa;
+      order.subtotalPaisa = order.items[0].lineNetPaisa;
+      order.taxTotalPaisa = order.items[0].lineTaxPaisa;
+      order.grandTotalPaisa = order.items[0].lineTotalPaisa;
+    }
+    await order.save();
+    res.json({ success: true, data: order });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete draft/cancelled order
+router.delete('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.WAREHOUSE_STAFF), async (req, res, next) => {
+  try {
+    const order = await DistributionOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, error: { message: 'Order not found' } });
+    if (order.status !== 'DRAFT' && order.status !== 'CANCELLED') {
+      return res.status(400).json({ success: false, error: { message: 'Only DRAFT or CANCELLED orders can be deleted' } });
+    }
+    await DistributionOrder.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Order deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

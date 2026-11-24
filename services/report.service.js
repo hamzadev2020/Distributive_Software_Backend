@@ -5,6 +5,7 @@ import { Invoice } from '../models/Invoice.js';
 import { StockBalance } from '../models/StockBalance.js';
 import { Product } from '../models/Product.js';
 import { Payment } from '../models/Payment.js';
+import { Return } from '../models/Return.js';
 import { DOCUMENT_STATUS, PAYMENT_STATUS, ORDER_STATUS, ROLES } from '../config/constants.js';
 
 export class ReportService {
@@ -162,22 +163,46 @@ export class ReportService {
   }
 
   /**
-   * Role-based Dashboard Summary (Cached 60s)
+   * Role-based Dashboard Summary (Owner & Operations Analytics)
    */
   static async getDashboardSummary(userRole) {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [todayOrders, pendingDispatchOrders, lowStockProducts] = await Promise.all([
+    const [todayOrders, pendingDispatchOrders, stockBalances, allProducts] = await Promise.all([
       DistributionOrder.countDocuments({ createdAt: { $gte: startOfToday } }),
       DistributionOrder.countDocuments({ status: { $in: [ORDER_STATUS.ALLOCATED, ORDER_STATUS.PARTIALLY_DISPATCHED] } }),
-      Product.countDocuments({ $expr: { $lte: ['$onHand', '$reorderLevel'] } })
+      StockBalance.find().populate('productId', 'name sku reorderLevel'),
+      Product.find({ deletedAt: null }, 'name sku reorderLevel')
     ]);
 
-    // Financial data (hidden from WAREHOUSE_STAFF)
+    // Inventory metrics
+    let totalStockRemaining = 0;
+    const productStockMap = {};
+    for (const b of stockBalances) {
+      const avail = b.available !== undefined ? b.available : (b.onHand - b.reserved);
+      totalStockRemaining += avail;
+      const pid = b.productId?._id?.toString() || b.productId?.toString();
+      if (pid) {
+        productStockMap[pid] = (productStockMap[pid] || 0) + avail;
+      }
+    }
+
+    // Find lowest stock product
+    let lowestStockProduct = null;
+    let minStock = Infinity;
+    for (const p of allProducts) {
+      const stock = productStockMap[p._id.toString()] || 0;
+      if (stock < minStock) {
+        minStock = stock;
+        lowestStockProduct = { name: p.name, sku: p.sku, available: stock };
+      }
+    }
+
+    // Financial & Sales metrics
     let financialData = null;
     if (userRole !== ROLES.WAREHOUSE_STAFF) {
-      const [overdueInvoices, outstandingSummary] = await Promise.all([
+      const [overdueInvoices, outstandingSummary, returnsSummary, salesAggregation] = await Promise.all([
         Invoice.countDocuments({
           documentStatus: DOCUMENT_STATUS.ISSUED,
           outstandingPaisa: { $gt: 0 },
@@ -185,21 +210,59 @@ export class ReportService {
         }),
         Invoice.aggregate([
           { $match: { documentStatus: DOCUMENT_STATUS.ISSUED } },
-          { $group: { _id: null, totalOut: { $sum: '$outstandingPaisa' }, totalPaid: { $sum: '$paidPaisa' } } }
+          { $group: { _id: null, totalOut: { $sum: '$outstandingPaisa' }, totalPaid: { $sum: '$paidPaisa' }, totalRevenue: { $sum: '$grandTotalPaisa' } } }
+        ]),
+        Return.aggregate([
+          { $group: { _id: null, totalLoss: { $sum: '$grandTotalPaisa' } } }
+        ]),
+        Invoice.aggregate([
+          { $match: { documentStatus: DOCUMENT_STATUS.ISSUED } },
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: '$items.productId',
+              productName: { $first: '$items.productName' },
+              totalQtySold: { $sum: '$items.quantity' },
+              totalSalesPaisa: { $sum: '$items.lineNetPaisa' },
+              totalCogsPaisa: { $sum: { $multiply: ['$items.quantity', '$items.cogsPaisaPerUnit'] } }
+            }
+          },
+          { $sort: { totalQtySold: -1 } }
         ])
       ]);
+
+      let totalUnitsSold = 0;
+      let totalProfitPaisa = 0;
+      let topSellingProduct = null;
+
+      if (salesAggregation && salesAggregation.length > 0) {
+        topSellingProduct = {
+          name: salesAggregation[0].productName,
+          qtySold: salesAggregation[0].totalQtySold
+        };
+        for (const item of salesAggregation) {
+          totalUnitsSold += item.totalQtySold;
+          totalProfitPaisa += (item.totalSalesPaisa - item.totalCogsPaisa);
+        }
+      }
 
       financialData = {
         overdueInvoicesCount: overdueInvoices,
         totalOutstandingPaisa: outstandingSummary[0]?.totalOut || 0,
-        totalCollectedPaisa: outstandingSummary[0]?.totalPaid || 0
+        totalCollectedPaisa: outstandingSummary[0]?.totalPaid || 0,
+        totalRevenuePaisa: outstandingSummary[0]?.totalRevenue || 0,
+        totalProfitPaisa: Math.max(0, totalProfitPaisa),
+        totalUnitsSold,
+        totalLossPaisa: returnsSummary[0]?.totalLoss || 0,
+        topSellingProduct
       };
     }
 
     return {
       todayOrdersCount: todayOrders,
       pendingDispatchCount: pendingDispatchOrders,
-      lowStockProductsCount: lowStockProducts,
+      totalStockRemaining,
+      lowestStockProduct,
       financial: financialData
     };
   }
