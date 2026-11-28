@@ -18,6 +18,7 @@ router.get('/', requireAuth, sanitizeWarehouseStaffPrices, async (req, res, next
     const orders = await DistributionOrder.find(filter)
       .populate('vendorId', 'code name')
       .populate('warehouseId', 'code name')
+      .populate('items.productId', 'sku name salePricePaisa baseUnit')
       .skip((page - 1) * limit)
       .limit(Number(limit))
       .sort({ createdAt: -1 });
@@ -88,19 +89,44 @@ router.put('/:id', requireAuth, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLE
     if (order.status !== 'DRAFT') {
       return res.status(400).json({ success: false, error: { message: 'Only DRAFT orders can be edited' } });
     }
-    const { vendorId, warehouseId, quantity, productId } = req.body;
+    const { vendorId, warehouseId, quantity, productId, unitPricePaisa, discountPercent, discountFlatPaisa } = req.body;
     if (vendorId) order.vendorId = vendorId;
     if (warehouseId) order.warehouseId = warehouseId;
-    if (quantity && order.items && order.items.length > 0) {
-      order.items[0].quantity = Number(quantity);
+    if (order.items && order.items.length > 0) {
+      if (quantity) order.items[0].quantity = Number(quantity);
       if (productId) order.items[0].productId = productId;
-      const unitPrice = order.items[0].unitPricePaisa || 0;
-      order.items[0].lineNetPaisa = unitPrice * Number(quantity);
-      order.items[0].lineTaxPaisa = Math.round(order.items[0].lineNetPaisa * 0.01);
-      order.items[0].lineTotalPaisa = order.items[0].lineNetPaisa + order.items[0].lineTaxPaisa;
-      order.subtotalPaisa = order.items[0].lineNetPaisa;
-      order.taxTotalPaisa = order.items[0].lineTaxPaisa;
-      order.grandTotalPaisa = order.items[0].lineTotalPaisa;
+      if (unitPricePaisa !== undefined && unitPricePaisa !== null) {
+        order.items[0].unitPricePaisa = Math.round(Number(unitPricePaisa));
+      }
+      if (discountPercent !== undefined) {
+        const bp = Number(discountPercent) > 0 && Number(discountPercent) <= 100 
+          ? Math.round(Number(discountPercent) * 100) 
+          : Math.round(Number(discountPercent));
+        order.items[0].discountPercent = bp;
+      }
+      if (discountFlatPaisa !== undefined) {
+        order.items[0].discountFlatPaisa = Math.round(Number(discountFlatPaisa));
+      }
+
+      const q = order.items[0].quantity;
+      const unitP = order.items[0].unitPricePaisa || 0;
+      const discPercent = order.items[0].discountPercent || 0;
+      const discFlat = order.items[0].discountFlatPaisa || 0;
+      const taxRate = order.items[0].taxRateBasisPoints || 100;
+
+      const lineGross = q * unitP;
+      const percentDiscount = discPercent > 0 ? Math.round((lineGross * discPercent) / 10000) : 0;
+      const lineNet = Math.max(0, lineGross - percentDiscount - discFlat);
+      const lineTax = Math.round((lineNet * taxRate) / 10000);
+      const lineTotal = lineNet + lineTax;
+
+      order.items[0].lineNetPaisa = lineNet;
+      order.items[0].lineTaxPaisa = lineTax;
+      order.items[0].lineTotalPaisa = lineTotal;
+
+      order.subtotalPaisa = lineNet;
+      order.taxTotalPaisa = lineTax;
+      order.grandTotalPaisa = lineTotal;
     }
     await order.save();
     res.json({ success: true, data: order });

@@ -38,18 +38,30 @@ export class OrderService {
       const product = await Product.findById(item.productId).session(session);
       if (!product) throw new NotFoundError('Product', item.productId);
 
-      // Check vendor-specific price list first, fallback to standard sale price
-      const priceEntry = await PriceList.findOne({
-        vendorId,
-        productId: product._id,
-        effectiveFrom: { $lte: new Date() },
-        $or: [{ effectiveTo: null }, { effectiveTo: { $gt: new Date() } }]
-      }).sort({ effectiveFrom: -1 }).session(session);
+      // Check if custom unit price is provided in item, otherwise fallback to price list or product sale price
+      let unitPricePaisa = (item.unitPricePaisa !== undefined && item.unitPricePaisa !== null && Number(item.unitPricePaisa) >= 0)
+        ? Math.round(Number(item.unitPricePaisa))
+        : null;
 
-      const unitPricePaisa = priceEntry ? priceEntry.pricePaisa : product.salePricePaisa;
-      const quantity = item.quantity;
-      const discountPercent = item.discountPercent || 0;
-      const discountFlatPaisa = item.discountFlatPaisa || 0;
+      if (unitPricePaisa === null) {
+        // Check vendor-specific price list first, fallback to standard sale price
+        const priceEntry = await PriceList.findOne({
+          vendorId,
+          productId: product._id,
+          effectiveFrom: { $lte: new Date() },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gt: new Date() } }]
+        }).sort({ effectiveFrom: -1 }).session(session);
+
+        unitPricePaisa = priceEntry ? priceEntry.pricePaisa : product.salePricePaisa;
+      }
+
+      const quantity = Number(item.quantity);
+      let discountPercent = Number(item.discountPercent) || 0;
+      // Convert standard percentage (e.g. 5) to basis points (500) if <= 100
+      if (discountPercent > 0 && discountPercent <= 100) {
+        discountPercent = Math.round(discountPercent * 100);
+      }
+      const discountFlatPaisa = Number(item.discountFlatPaisa) || 0;
       const taxRateBasisPoints = item.taxRateBasisPoints !== undefined ? item.taxRateBasisPoints : (product.taxRatePercent || 100);
 
       const lineGrossPaisa = quantity * unitPricePaisa;
